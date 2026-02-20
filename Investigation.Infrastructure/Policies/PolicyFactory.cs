@@ -1,5 +1,5 @@
 using Polly;
-using Microsoft.Extensions.Http.Polly;
+using Polly.Extensions.Http;
 using System;
 using System.Net.Http;
 

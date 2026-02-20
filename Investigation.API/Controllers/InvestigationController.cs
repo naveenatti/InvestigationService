@@ -25,8 +25,10 @@ namespace Investigation.API.Controllers
         public async Task<IActionResult> Query([FromBody] JsonObject payload)
         {
             // Extract trace id or create one
-            var traceId = Request.Headers.ContainsKey("X-Trace-Id") ? Request.Headers["X-Trace-Id"].ToString() : Activity.Current?.Id ?? Activity.NewId().ToString();
-
+           var traceId = Request.Headers.ContainsKey("X-Trace-Id")
+              ? Request.Headers["X-Trace-Id"].ToString()
+              : Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString();
+              
             using var activity = new Activity("InvestigationController.Query");
             activity.SetIdFormat(ActivityIdFormat.W3C);
             activity.Start();

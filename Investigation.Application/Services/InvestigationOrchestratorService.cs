@@ -63,10 +63,15 @@ namespace Investigation.Application.Services
                 sw.Stop();
                 stepAgent.MarkSuccess(agentResp.ToString());
 
-                steps.Add(new InvestigationStepDto("AI Agent", stepAgent.Status.ToString(), sw.ElapsedMilliseconds, agentResp));
+                steps.Add(new InvestigationStepDto(
+                        "AI Agent",
+                        stepAgent.Status.ToString(),
+                        sw.ElapsedMilliseconds,
+                        agentResp as JsonObject
+                    ));
 
                 // Extract toolcalls from agent response
-                var toolCalls = agentResp["toolCalls"]?.AsArray() ?? default;
+                JsonArray? toolCalls = agentResp["toolCalls"]?.AsArray();
 
                 // 2) Call RAG for hints
                 var stepRag = new InvestigationStep("RAG Service");
@@ -87,13 +92,21 @@ namespace Investigation.Application.Services
                     ragActivity?.Stop();
                     swRag.Stop();
                     stepRag.MarkSuccess(ragResp?.ToString());
-                    steps.Add(new InvestigationStepDto("RAG Service", stepRag.Status.ToString(), swRag.ElapsedMilliseconds, ragResp));
+                    steps.Add(new InvestigationStepDto(
+                         "RAG Service",
+                         stepRag.Status.ToString(),
+                         swRag.ElapsedMilliseconds,
+                         ragResp as JsonObject
+                     ));
                 }
                 catch (Exception ex)
                 {
                     swRag.Stop();
                     stepRag.MarkFailed(ex.Message);
-                    steps.Add(new InvestigationStepDto("RAG Service", stepRag.Status.ToString(), swRag.ElapsedMilliseconds, JsonObject.Parse($"{new { error = ex.Message }.ToString() ?? "{}"}")));
+                    steps.Add(new InvestigationStepDto("RAG Service", stepRag.Status.ToString(), swRag.ElapsedMilliseconds, new JsonObject
+                    {
+                        ["error"] = ex.Message
+                    }));
                 }
 
                 // 3) Execute Tools
@@ -122,13 +135,21 @@ namespace Investigation.Application.Services
                             toolActivity?.Stop();
                             swTool.Stop();
                             stepTool.MarkSuccess(toolResult.ToString());
-                            steps.Add(new InvestigationStepDto($"Tool:{toolName}", stepTool.Status.ToString(), swTool.ElapsedMilliseconds, toolResult));
+                            steps.Add(new InvestigationStepDto(
+                                $"Tool:{toolName}",
+                                stepTool.Status.ToString(),
+                                swTool.ElapsedMilliseconds,
+                                toolResult as JsonObject
+                            ));
                         }
                         catch (Exception ex)
                         {
                             swTool.Stop();
                             stepTool.MarkFailed(ex.Message);
-                            steps.Add(new InvestigationStepDto($"Tool:{toolName}", stepTool.Status.ToString(), swTool.ElapsedMilliseconds, JsonObject.Parse($"{new { error = ex.Message }.ToString() ?? "{}"}")));
+                            steps.Add(new InvestigationStepDto($"Tool:{toolName}", stepTool.Status.ToString(), swTool.ElapsedMilliseconds, new JsonObject
+                            {
+                                ["error"] = ex.Message
+                            }));
                         }
                     }
                 }
@@ -144,7 +165,10 @@ namespace Investigation.Application.Services
             catch (Exception ex)
             {
                 sw.Stop();
-                steps.Add(new InvestigationStepDto("AI Agent", InvestigationStepStatus.Failed.ToString(), sw.ElapsedMilliseconds, JsonObject.Parse($"{{ \"error\": \"{ex.Message}\" }}")));
+                steps.Add(new InvestigationStepDto("AI Agent", InvestigationStepStatus.Failed.ToString(), sw.ElapsedMilliseconds, new JsonObject
+                {
+                    ["error"] = ex.Message
+                }));
                 await _sessionRepository.SaveAsync(session, ct);
                 throw;
             }
