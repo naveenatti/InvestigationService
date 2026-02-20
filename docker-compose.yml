@@ -1,0 +1,13 @@
+version: '3.9'
+
+services:
+  investigation-service:
+    build:
+      context: ./Investigation.API
+      dockerfile: Dockerfile
+    container_name: investigation-service
+    ports:
+      - "5000:80"   # Map container port 80 to host 5000
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    restart: unless-stopped
