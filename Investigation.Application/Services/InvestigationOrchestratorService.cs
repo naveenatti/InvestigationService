@@ -102,7 +102,8 @@ namespace Investigation.Application.Services
                     foreach (var tc in toolCalls)
                     {
                         var toolName = tc?["toolName"]?.GetValue<string>() ?? "unknown";
-                        var args = tc?["arguments"]?.AsObject();
+                        var args = tc?["arguments"] as JsonObject
+                                    ?? tc?["arguments"]?.AsObject();
 
                         var stepTool = new InvestigationStep($"Tool:{toolName}");
                         session.AddStep(stepTool);

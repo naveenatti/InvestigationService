@@ -1,0 +1,6 @@
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.csproj.AssemblyReference.cache
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.AssemblyInfoInputs.cache
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.AssemblyInfo.cs
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.csproj.CoreCompileInputs.cache
+D:\AI Projects\InvestigationService\Investigation.Application\obj\Debug\net8.0\Investigation.Application.sourcelink.json

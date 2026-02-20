@@ -1,0 +1,12 @@
+D:\AI Projects\InvestigationService\Investigation.Domain\bin\Debug\net8.0\Investigation.Domain.deps.json
+D:\AI Projects\InvestigationService\Investigation.Domain\bin\Debug\net8.0\Investigation.Domain.dll
+D:\AI Projects\InvestigationService\Investigation.Domain\bin\Debug\net8.0\Investigation.Domain.pdb
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.GeneratedMSBuildEditorConfig.editorconfig
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.AssemblyInfoInputs.cache
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.AssemblyInfo.cs
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.csproj.CoreCompileInputs.cache
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.sourcelink.json
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.dll
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\refint\Investigation.Domain.dll
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\Investigation.Domain.pdb
+D:\AI Projects\InvestigationService\Investigation.Domain\obj\Debug\net8.0\ref\Investigation.Domain.dll
