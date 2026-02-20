@@ -1,1 +1,59 @@
 
+# Build artifacts
+bin/
+obj/
+out/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code settings
+.vscode/
+.history/
+
+# Rider IDE settings
+.idea/
+
+# ASP.NET temporary files
+*.dotCover
+*.dotTrace
+
+# Logs
+*.log
+logs/
+
+# NuGet packages
+*.nupkg
+packages/
+# NuGet cache folder
+.nuget/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment files (if any)
+.env
+.env.*.local
+
+# Docker
+docker-compose.override.yml
+docker-compose.override.*.yml
+*.dockerfile
+
+# Coverage and test results
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Resharper
+_ReSharper*/
+*.DotSettings.user
+
+# Publish output
+publish/
