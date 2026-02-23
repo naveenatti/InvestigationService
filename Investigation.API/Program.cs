@@ -8,6 +8,7 @@ using Serilog.Context;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Resources;
 using Investigation.Infrastructure;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,8 +60,22 @@ builder.Services.AddScoped<Investigation.Application.Services.IInvestigationOrch
 
 // Infrastructure
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Investigation API", Version = "v1" });
+});
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Investigation API V1");
+    });
+}
 
 // Middleware: TraceId
 app.Use(async (context, next) =>

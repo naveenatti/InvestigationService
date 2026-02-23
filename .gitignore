@@ -3,6 +3,7 @@
 bin/
 obj/
 out/
+.git/
 
 # User-specific files
 *.user
