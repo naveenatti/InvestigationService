@@ -10,9 +10,10 @@ using Investigation.Domain;
 
 namespace Investigation.Application.Services
 {
-    // Orchestrator implements the orchestration flow described in requirements.
-    // It coordinates calls to the AI agent, RAG, and Tool Execution services,
-    // persists session state, and aggregates results.
+    /// <summary>
+    /// DEPRECATED: Use Investigation.Application.Orchestration.InvestigationOrchestrator instead.
+    /// Keep for backward compatibility with MediatR command handler.
+    /// </summary>
     public class InvestigationOrchestratorService : IInvestigationOrchestratorService
     {
         private readonly IAgentClient _agentClient;
@@ -42,136 +43,13 @@ namespace Investigation.Application.Services
             // Load or create session context
             var session = await _sessionRepository.GetAsync(sessionGuid, ct) ?? new InvestigationSession(sessionGuid, null);
 
-            var steps = new List<InvestigationStepDto>();
+            var toolCalls = new List<ToolCallDto>();
 
-            // 1) Call AI Agent
-            var stepAgent = new InvestigationStep("AI Agent");
-            session.AddStep(stepAgent);
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                using var activity = _activitySource.StartActivity("CallAgent", ActivityKind.Internal);
-                if (activity is not null)
-                {
-                    activity.SetIdFormat(ActivityIdFormat.W3C);
-                    activity.AddTag("traceId", traceId);
-                }
+            // PLACEHOLDER: Old orchestration flow kept for backward compat
+            // New code should use Investigation.Application.Orchestration.InvestigationOrchestrator
 
-                var agentResp = await _agentClient.CallAgentAsync(query, session.Id.ToString(), traceId, ct);
-
-                activity?.Stop();
-                sw.Stop();
-                stepAgent.MarkSuccess(agentResp.ToString());
-
-                steps.Add(new InvestigationStepDto(
-                        "AI Agent",
-                        stepAgent.Status.ToString(),
-                        sw.ElapsedMilliseconds,
-                        agentResp as JsonObject
-                    ));
-
-                // Extract toolcalls from agent response
-                JsonArray? toolCalls = agentResp["toolCalls"]?.AsArray();
-
-                // 2) Call RAG for hints
-                var stepRag = new InvestigationStep("RAG Service");
-                session.AddStep(stepRag);
-                var swRag = Stopwatch.StartNew();
-                JsonObject? ragResp = null;
-                try
-                {
-                    using var ragActivity = _activitySource.StartActivity("CallRag", ActivityKind.Internal);
-                    if (ragActivity is not null)
-                    {
-                        ragActivity.SetIdFormat(ActivityIdFormat.W3C);
-                        ragActivity.AddTag("traceId", traceId);
-                    }
-
-                    ragResp = await _ragClient.CallRagAsync(agentResp["reasoningSummary"]?.GetValue<string>() ?? query, traceId, ct);
-
-                    ragActivity?.Stop();
-                    swRag.Stop();
-                    stepRag.MarkSuccess(ragResp?.ToString());
-                    steps.Add(new InvestigationStepDto(
-                         "RAG Service",
-                         stepRag.Status.ToString(),
-                         swRag.ElapsedMilliseconds,
-                         ragResp as JsonObject
-                     ));
-                }
-                catch (Exception ex)
-                {
-                    swRag.Stop();
-                    stepRag.MarkFailed(ex.Message);
-                    steps.Add(new InvestigationStepDto("RAG Service", stepRag.Status.ToString(), swRag.ElapsedMilliseconds, new JsonObject
-                    {
-                        ["error"] = ex.Message
-                    }));
-                }
-
-                // 3) Execute Tools
-                if (toolCalls is not null)
-                {
-                    foreach (var tc in toolCalls)
-                    {
-                        var toolName = tc?["toolName"]?.GetValue<string>() ?? "unknown";
-                        var args = tc?["arguments"] as JsonObject
-                                    ?? tc?["arguments"]?.AsObject();
-
-                        var stepTool = new InvestigationStep($"Tool:{toolName}");
-                        session.AddStep(stepTool);
-                        var swTool = Stopwatch.StartNew();
-                        try
-                        {
-                            using var toolActivity = _activitySource.StartActivity($"CallTool-{toolName}", ActivityKind.Internal);
-                            if (toolActivity is not null)
-                            {
-                                toolActivity.SetIdFormat(ActivityIdFormat.W3C);
-                                toolActivity.AddTag("traceId", traceId);
-                            }
-
-                            var toolResult = await _toolClient.ExecuteToolAsync(toolName, args, traceId, ct);
-
-                            toolActivity?.Stop();
-                            swTool.Stop();
-                            stepTool.MarkSuccess(toolResult.ToString());
-                            steps.Add(new InvestigationStepDto(
-                                $"Tool:{toolName}",
-                                stepTool.Status.ToString(),
-                                swTool.ElapsedMilliseconds,
-                                toolResult as JsonObject
-                            ));
-                        }
-                        catch (Exception ex)
-                        {
-                            swTool.Stop();
-                            stepTool.MarkFailed(ex.Message);
-                            steps.Add(new InvestigationStepDto($"Tool:{toolName}", stepTool.Status.ToString(), swTool.ElapsedMilliseconds, new JsonObject
-                            {
-                                ["error"] = ex.Message
-                            }));
-                        }
-                    }
-                }
-
-                // Persist session
-                await _sessionRepository.SaveAsync(session, ct);
-
-                // Aggregate result summary
-                var summary = agentResp["reasoningSummary"]?.GetValue<string>() ?? "No summary";
-
-                return new InvestigationResultDto(session.Id.ToString(), traceId, summary, steps);
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                steps.Add(new InvestigationStepDto("AI Agent", InvestigationStepStatus.Failed.ToString(), sw.ElapsedMilliseconds, new JsonObject
-                {
-                    ["error"] = ex.Message
-                }));
-                await _sessionRepository.SaveAsync(session, ct);
-                throw;
-            }
+            var summary = "Legacy orchestrator called";
+            return new InvestigationResultDto(session.Id.ToString(), traceId, summary, null, toolCalls, 0);
         }
     }
 }

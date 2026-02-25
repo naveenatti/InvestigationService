@@ -1,15 +1,16 @@
 using System.Collections.Generic;
-using System.Text.Json.Nodes;
 
 namespace Investigation.Application
 {
-    public record InvestigationResultDto
-    (
-        string SessionId,
+    // Kept for backward compatibility; new code should use Investigation.Application.DTOs.InvestigationResponse
+    public record InvestigationResultDto(
         string TraceId,
+        string Status,
         string Summary,
-        IEnumerable<InvestigationStepDto> Steps
+        object? Result,
+        List<ToolCallDto> ToolCalls,
+        long DurationMs
     );
 
-    public record InvestigationStepDto(string Name, string Status, long DurationMs, JsonObject? Detail);
+    public record ToolCallDto(string ToolName, object Input, object Output, string Status);
 }

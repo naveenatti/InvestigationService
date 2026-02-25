@@ -1,0 +1,41 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Laptop\\OldLaptop\\F Drive\\StudyVideos\\2026\\AI\\Projects\\InvestigationService\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{E2F1B874-8BFE-C184-0C3A-BCAE405ECD41}|Investigation.API\\Investigation.API.csproj|c:\\laptop\\oldlaptop\\f drive\\studyvideos\\2026\\ai\\projects\\investigationservice\\investigation.api\\controllers\\investigationcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{E2F1B874-8BFE-C184-0C3A-BCAE405ECD41}|Investigation.API\\Investigation.API.csproj|solutionrelative:investigation.api\\controllers\\investigationcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "InvestigationController.cs",
+              "DocumentMoniker": "C:\\Laptop\\OldLaptop\\F Drive\\StudyVideos\\2026\\AI\\Projects\\InvestigationService\\Investigation.API\\Controllers\\InvestigationController.cs",
+              "RelativeDocumentMoniker": "Investigation.API\\Controllers\\InvestigationController.cs",
+              "ToolTip": "C:\\Laptop\\OldLaptop\\F Drive\\StudyVideos\\2026\\AI\\Projects\\InvestigationService\\Investigation.API\\Controllers\\InvestigationController.cs",
+              "RelativeToolTip": "Investigation.API\\Controllers\\InvestigationController.cs",
+              "ViewState": "AgIAAAkAAAAAAAAAAAAAABoAAAAtAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-02-23T11:08:14.473Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

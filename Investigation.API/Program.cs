@@ -8,6 +8,7 @@ using Serilog.Context;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Resources;
 using Investigation.Infrastructure;
+using Investigation.Application.Orchestration;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,7 +35,7 @@ builder.Services.AddOpenTelemetry()
         tracerProviderBuilder
             .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(svcName))
             .AddSource(activitySourceName)
-            .AddAspNetCoreInstrumentation() // drop Enrich for now
+            .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddConsoleExporter();
 
