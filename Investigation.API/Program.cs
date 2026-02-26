@@ -10,6 +10,7 @@ using OpenTelemetry.Resources;
 using Investigation.Infrastructure;
 using Investigation.Application.Orchestration;
 using Microsoft.OpenApi.Models;
+using Investigation.API.Swagger.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -65,6 +66,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Investigation API", Version = "v1" });
+    // include XML comments in generated Swagger (ensure XML file generated in csproj)
+    var xmlFile = System.IO.Path.ChangeExtension(System.Reflection.Assembly.GetExecutingAssembly().Location, ".xml");
+    if (System.IO.File.Exists(xmlFile))
+    {
+        c.IncludeXmlComments(xmlFile);
+    }
+    c.OperationFilter<AddTraceIdHeaderFilter>();
+    c.OperationFilter<AddResponseDescriptionFilter>();
 });
 
 var app = builder.Build();
@@ -104,5 +113,6 @@ app.Use(async (context, next) =>
     }
 });
 
+app.MapGet("/health", () => Results.Ok("Investigation Service is running"));
 app.MapControllers();
 app.Run();

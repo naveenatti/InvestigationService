@@ -15,6 +15,7 @@ namespace Investigation.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [Produces("application/json")]
     public class InvestigationController : ControllerBase
     {
         private readonly IInvestigationOrchestrator _orchestrator;

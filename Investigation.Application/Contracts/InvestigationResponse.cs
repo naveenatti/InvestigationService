@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Investigation.Application.Contracts
 {
@@ -14,6 +15,14 @@ namespace Investigation.Application.Contracts
     /// - "Failed": Investigation encountered an error during processing.
     /// - "Partial": Investigation completed but with limited results.
     /// </remarks>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum InvestigationResponseStatus
+    {
+        Success,
+        Failed,
+        Partial
+    }
+
     public record InvestigationResponse(
         /// <summary>Trace ID for correlating across distributed systems.</summary>
         string TraceId,
@@ -22,7 +31,7 @@ namespace Investigation.Application.Contracts
         string CaseId,
 
         /// <summary>Status of investigation: Success, Failed, or Partial.</summary>
-        string Status,
+        InvestigationResponseStatus Status,
 
         /// <summary>Human-readable summary of the investigation findings.</summary>
         string Summary,

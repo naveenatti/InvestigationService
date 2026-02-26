@@ -90,7 +90,7 @@ namespace Investigation.Application.Orchestration
                 var response = new InvestigationResponse(
                     request.TraceId ?? string.Empty,
                     request.CaseId,
-                    "Success",
+                    InvestigationResponseStatus.Success,
                     agentResp?.ReasoningSummary ?? agentResp?.Reasoning ?? "Analysis completed",
                     agentResp != null ? new { insight = "Investigation performed" } : null,
                     toolCalls,
