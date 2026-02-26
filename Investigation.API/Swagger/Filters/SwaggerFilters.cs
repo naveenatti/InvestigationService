@@ -25,16 +25,5 @@ namespace Investigation.API.Swagger.Filters
     /// <summary>
     /// Adds default descriptions to common response codes.
     /// </summary>
-    public class AddResponseDescriptionFilter : IOperationFilter
-    {
-        public void Apply(OpenApiOperation operation, OperationFilterContext context)
-        {
-            if (operation.Responses.ContainsKey("200"))
-                operation.Responses["200"].Description = "Investigation result";
-            if (operation.Responses.ContainsKey("400"))
-                operation.Responses["400"].Description = "Validation error";
-            if (operation.Responses.ContainsKey("500"))
-                operation.Responses["500"].Description = "Unexpected server error";
-        }
-    }
+   
 }
