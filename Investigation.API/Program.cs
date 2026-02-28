@@ -72,8 +72,8 @@ builder.Services.AddSwaggerGen(c =>
     {
         c.IncludeXmlComments(xmlFile);
     }
-    c.OperationFilter<AddTraceIdHeaderFilter>();
-    c.OperationFilter<AddResponseDescriptionFilter>();
+    // c.OperationFilter<AddTraceIdHeaderFilter>();
+    // c.OperationFilter<AddResponseDescriptionFilter>();
 });
 
 var app = builder.Build();
