@@ -350,3 +350,22 @@ Returns:
 - **Domain Models:** See [Investigation.Domain](Investigation.Domain)
 - **Infrastructure Clients:** See [Investigation.Infrastructure/Clients](Investigation.Infrastructure/Clients)
 - **Orchestration Logic:** See [Investigation.Application/Orchestration](Investigation.Application/Orchestration)
+
+## We have to work on this main context in future.
+AFTER THIS (Do NOT Build Yet)
+
+Once stable:
+
+Add RAG
+
+Add reflection loop
+
+Add confidence threshold re-planning
+
+Add policy engine
+
+Add streaming LLM responses
+
+Add OpenTelemetry spans
+
+But not now.
