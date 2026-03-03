@@ -353,19 +353,26 @@ Returns:
 
 ## We have to work on this main context in future.
 AFTER THIS (Do NOT Build Yet)
-
 Once stable:
+- Add RAG
+- Add reflection loop
+- Add confidence threshold re-planning
+- Add policy engine
+- Add streaming LLM responses
+- Add OpenTelemetry spans
+- But not now.
 
-Add RAG
+## To do
+-After you stabilize:
+-Phase 1 (Now)
+-Single-pass planner
+-Phase 2
+-Add reflection loop (optional)
+-Phase 3
+-Add RAG knowledge retrieval
+-Phase 4
+-Add memory per caseId
+-But first:
+-Stabilize planner.
 
-Add reflection loop
 
-Add confidence threshold re-planning
-
-Add policy engine
-
-Add streaming LLM responses
-
-Add OpenTelemetry spans
-
-But not now.
