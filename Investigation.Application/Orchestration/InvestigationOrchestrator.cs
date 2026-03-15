@@ -5,168 +5,108 @@ using System.Threading;
 using System.Threading.Tasks;
 using Investigation.Application.Contracts;
 using Investigation.Application.DTOs;
-using Investigation.Domain;
+using Investigation.Application.Exceptions;
+using Investigation.Application.Models;
+using Investigation.Application.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Investigation.Application.Orchestration
 {
     /// <summary>
     /// Orchestrates investigation queries following Clean Architecture principles.
-    /// Validates requests, calls AI agent, maps results to tool calls, and returns typed responses.
-    /// Emits OpenTelemetry traces and structured logs for observability.
+    /// Calls AI agent /plan endpoint, validates plan, and prepares for tool execution.
     /// </summary>
     public class InvestigationOrchestrator : IInvestigationOrchestrator
     {
-        private readonly IAiAgentClient _aiClient;
-        private readonly ISessionRepository _sessionRepository;
-        private readonly ActivitySource _activitySource;
+        private readonly AiAgentClient _aiAgent;
+        private readonly PlanValidator _validator;
         private readonly ILogger<InvestigationOrchestrator> _logger;
 
+        // Registered tool names — sent as toolRegistry to the agent /plan endpoint
+        // Must exactly match the allowlist in PlanValidator and routes in ToolExecution.API
+        private static readonly List<string> ToolRegistry = new()
+        {
+            "list-pods",
+            "get-pod-logs",
+            "get-deployments",
+            "get-resource-usage",
+            "execute-command"
+        };
+
         public InvestigationOrchestrator(
-            IAiAgentClient aiClient,
-            ISessionRepository sessionRepository,
-            ActivitySource activitySource,
+            AiAgentClient aiAgent,
+            PlanValidator validator,
             ILogger<InvestigationOrchestrator> logger)
         {
-            _aiClient = aiClient;
-            _sessionRepository = sessionRepository;
-            _activitySource = activitySource;
-            _logger = logger;
+            _aiAgent   = aiAgent;
+            _validator = validator;
+            _logger    = logger;
         }
 
-        /// <summary>
-        /// Executes investigation orchestration flow with validation, AI agent invocation, and response mapping.
-        /// </summary>
-        public async Task<InvestigationResponse> InvestigateAsync(InvestigationRequest request, CancellationToken ct = default)
+        public async Task<InvestigationResponse> InvestigateAsync(InvestigationRequest req, CancellationToken ct = default)
         {
             var sw = Stopwatch.StartNew();
 
-            // Step 1: Start Activity (OpenTelemetry)
-            using var activity = _activitySource.StartActivity("investigation.orchestrate", ActivityKind.Internal);
-            activity?.SetIdFormat(ActivityIdFormat.W3C);
-            activity?.AddTag("traceId", request.TraceId);
-            activity?.AddTag("caseId", request.CaseId);
+            // ── Step 1: Ensure traceId exists ─────────────────────────────────
+            // InvestigationRequest.traceId is nullable — generate one if absent
+            var traceId = string.IsNullOrWhiteSpace(req.TraceId)
+                ? Guid.NewGuid().ToString()
+                : req.TraceId;
 
-            try
+            _logger.LogInformation(
+                "Investigation started. traceId={TraceId} caseId={CaseId} query={Query}",
+                traceId, req.CaseId, req.Query);
+
+            // ── Step 2: Call POST /plan on the AI Agent ────────────────────────
+            // userQuery comes from InvestigationRequest.query
+            // toolRegistry is the fixed list of registered tools
+            var plan = await _aiAgent.GetPlanAsync(
+                userQuery:    req.Query!,
+                toolRegistry: ToolRegistry,
+                traceId:      traceId,
+                ct:           ct);
+
+            // ── Step 3: Validate the plan ──────────────────────────────────────
+            // Throws InvalidPlanException if any tool is not on the allowlist
+            // or if the plan structure is invalid
+            _validator.Validate(plan);
+
+            _logger.LogInformation(
+                "Plan validated. planId={PlanId} intent={Intent} steps={Steps} traceId={TraceId}",
+                plan.PlanId, plan.SummaryIntent, plan.InvestigationPlan.Count, traceId);
+
+            // Log each step's reasoning — useful for debugging poor LLM plans
+            foreach (var step in plan.InvestigationPlan)
             {
-                _logger.LogInformation("Investigation started for CaseId={CaseId}, Query={Query}", request.CaseId, request.Query);
-
-                // Step 2: Validate request
-                ValidateRequest(request);
-
-                var sessionGuid = Guid.NewGuid();
-                var session = new InvestigationSession(
-                    sessionGuid,
-                    request.UserId,
-                    request.TraceId,
-                    request.CaseId,
-                    request.Query);
-
-                // Step 3: Call IAiAgentClient
-                _logger.LogInformation("Calling AI Agent for TraceId={TraceId}", request.TraceId);
-
-                AgentResponse agentResp;
-                using (var aiActivity = _activitySource.StartActivity("ai.agent.called", ActivityKind.Client))
-                {
-                    aiActivity?.SetIdFormat(ActivityIdFormat.W3C);
-                    aiActivity?.AddTag("traceId", request.TraceId);
-                    aiActivity?.AddTag("caseId", request.CaseId);
-
-                    agentResp = await _aiClient.InvestigateAsync(
-                        request.Query,
-                        request.CaseId,
-                        request.TraceId ?? string.Empty,
-                        ct);
-                }
-
-                _logger.LogInformation("AI Agent returned {ActionCount} actions", agentResp?.Actions?.Count ?? 0);
-
-                // Step 4 & 5: Map AI result → InvestigationResponse + Add ToolCalls
-                var toolCalls = MapActionsToToolCalls(agentResp?.Actions);
-
-                sw.Stop();
-
-                // Step 6 & 7: Capture duration and return response
-                var response = new InvestigationResponse(
-                    request.TraceId ?? string.Empty,
-                    request.CaseId,
-                    InvestigationResponseStatus.Success,
-                    agentResp?.ReasoningSummary ?? agentResp?.Reasoning ?? "Analysis completed",
-                    agentResp != null ? new { insight = "Investigation performed" } : null,
-                    toolCalls,
-                    sw.ElapsedMilliseconds,
-                    DateTime.UtcNow
-                );
-
-                // Persist session
-                session.MarkCompleted();
-                await _sessionRepository.SaveAsync(session, ct);
-
-                _logger.LogInformation("Investigation completed for CaseId={CaseId} in {DurationMs}ms", request.CaseId, sw.ElapsedMilliseconds);
-
-                activity?.AddTag("http.status_code", "200");
-                activity?.AddTag("investigation.duration_ms", sw.ElapsedMilliseconds);
-
-                return response;
-            }
-            catch (ArgumentException ex)
-            {
-                sw.Stop();
-                _logger.LogWarning("Investigation validation failed: {Message}", ex.Message);
-                activity?.AddTag("http.status_code", "400");
-                activity?.AddTag("error", true);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                _logger.LogError(ex, "Investigation failed for CaseId={CaseId}", request.CaseId);
-                activity?.AddTag("http.status_code", "500");
-                activity?.AddTag("error", true);
-                activity?.AddTag("error.message", ex.Message);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Validates investigation request for required fields.
-        /// </summary>
-        private void ValidateRequest(InvestigationRequest request)
-        {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request), "Request cannot be null");
-
-            if (string.IsNullOrWhiteSpace(request.Query))
-                throw new ArgumentException("Query is required", nameof(request.Query));
-
-            if (string.IsNullOrWhiteSpace(request.CaseId))
-                throw new ArgumentException("CaseId is required", nameof(request.CaseId));
-
-            if (string.IsNullOrWhiteSpace(request.UserId))
-                throw new ArgumentException("UserId is required", nameof(request.UserId));
-        }
-
-        /// <summary>
-        /// Maps agent actions to tool call DTOs for response contract.
-        /// </summary>
-        private List<Contracts.ToolCallDto> MapActionsToToolCalls(List<AgentAction>? actions)
-        {
-            var toolCalls = new List<Contracts.ToolCallDto>();
-
-            if (actions == null || actions.Count == 0)
-                return toolCalls;
-
-            foreach (var action in actions)
-            {
-                toolCalls.Add(new Contracts.ToolCallDto(
-                    action.ToolName,
-                    "Pending",
-                    0,
-                    new { action = action.ToolName, input = action.Input }
-                ));
+                _logger.LogDebug(
+                    "Planned step={Step} tool={Tool} params={Params} reasoning={Reasoning} traceId={TraceId}",
+                    step.Step, step.ToolName,
+                    System.Text.Json.JsonSerializer.Serialize(step.Parameters),
+                    step.Reasoning, traceId);
             }
 
-            return toolCalls;
+            // ── TODO: Step 4 — Tool Execution Loop ────────────────────────────
+            // For each step in plan.InvestigationPlan:
+            //   call ToolExecutionClient.ExecuteAsync(step.ToolName, step.Parameters, traceId)
+            //   collect results into List<ToolResultItem>
+            // This is implemented in the next task.
+
+            // ── TODO: Step 5 — POST /analyze ──────────────────────────────────
+            // Call AiAgentClient.AnalyzeAsync(req.Query, toolResults, traceId)
+            // Map diagnosis to InvestigationResponse.result and .summary
+            // This is implemented in the next task.
+
+            // ── Step 6: Return partial response (plan phase complete) ──────────
+            return new InvestigationResponse(
+                traceId,
+                req.CaseId,
+                InvestigationResponseStatus.Success,
+                plan.SummaryIntent,  // temporary — replaced by /analyze later
+                null,                 // populated after /analyze
+                new List<Investigation.Application.Contracts.ToolCallDto>(), // populated after tool execution
+                sw.ElapsedMilliseconds,
+                DateTime.UtcNow
+            );
         }
     }
 }

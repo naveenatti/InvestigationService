@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Investigation.Application.Contracts;
 using Investigation.Application.DTOs;
+using Investigation.Application.Exceptions;
 using Investigation.Application.Orchestration;
 
 namespace Investigation.API.Controllers
@@ -107,6 +108,25 @@ namespace Investigation.API.Controllers
                 activity?.Stop();
 
                 return Ok(response);
+            }
+            catch (InvalidPlanException ex)
+            {
+                _logger.LogWarning(
+                    "Invalid investigation plan: TraceId={TraceId}, Message={Message}",
+                    traceId,
+                    ex.Message);
+
+                activity?.AddTag("error", true);
+                activity?.AddTag("error.message", ex.Message);
+
+                // 400 — matches the existing Investigation API OpenAPI spec error contract
+                return BadRequest(new ProblemDetails
+                {
+                    Title    = "Invalid investigation plan",
+                    Detail   = ex.Message,
+                    Status   = 400,
+                    Instance = HttpContext.Request.Path
+                });
             }
             catch (ArgumentException ex)
             {

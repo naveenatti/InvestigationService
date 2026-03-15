@@ -21,6 +21,9 @@ namespace Investigation.Infrastructure
             // Register orchestrator
             services.AddScoped<IInvestigationOrchestrator, InvestigationOrchestrator>();
 
+            // Register new services for plan integration
+            services.AddScoped<PlanValidator>();
+
             // Use mock AI client for development
             services.AddScoped<IAiAgentClient, MockAiAgentClient>();
 
@@ -28,8 +31,17 @@ namespace Investigation.Infrastructure
             var ragBase = config["ExternalServices:Rag:BaseUrl"] ?? "http://rag-service";
             var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec";
 
+            // Typed HttpClient for AI Agent — base URL from config
+            services.AddHttpClient<Investigation.Application.Services.AiAgentClient>(client =>
+            {
+                client.BaseAddress = new Uri(aiBase);
+
+                // 60s timeout — LLM planning calls can be slow
+                client.Timeout = TimeSpan.FromSeconds(60);
+            });
+
             // Legacy clients (for backward compatibility)
-            services.AddHttpClient<IAgentClient, AiAgentClient>(c => c.BaseAddress = new Uri(aiBase))
+            services.AddHttpClient<IAgentClient, Clients.AiAgentClient>(c => c.BaseAddress = new Uri(aiBase))
                 .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
 
             services.AddHttpClient<IRagClient, RagClient>(c => c.BaseAddress = new Uri(ragBase))
