@@ -3,9 +3,9 @@ using Xunit;
 using Moq;
 using Investigation.Application.Orchestration;
 using Investigation.Application.Contracts;
+using Investigation.Application.Models;
 using Investigation.Domain;
 using Investigation.Application.DTOs;
-using System.Diagnostics;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
@@ -13,19 +13,28 @@ namespace Investigation.Tests
 {
     public class InvestigationOrchestratorTests
     {
-        private readonly Mock<IAiAgentClient> _mockAiClient;
-        private readonly Mock<ISessionRepository> _mockSessionRepository;
-        private readonly Mock<ILogger<InvestigationOrchestrator>> _mockLogger;
-        private readonly ActivitySource _activitySource;
+        private readonly Mock<IAiPlanClient> _mockPlanClient;
+        private readonly Mock<IAiAgentClient> _mockAnalysisClient;
+        private readonly Mock<IToolExecutionClient> _mockToolClient;
+        private readonly ILogger<InvestigationOrchestrator> _logger;
         private readonly InvestigationOrchestrator _orchestrator;
 
         public InvestigationOrchestratorTests()
         {
-            _mockAiClient = new Mock<IAiAgentClient>();
-            _mockSessionRepository = new Mock<ISessionRepository>();
-            _mockLogger = new Mock<ILogger<InvestigationOrchestrator>>();
-            _activitySource = new ActivitySource("test");
-            _orchestrator = new InvestigationOrchestrator(_mockAiClient.Object, _mockSessionRepository.Object, _activitySource, _mockLogger.Object);
+            _mockPlanClient = new Mock<IAiPlanClient>();
+            _mockAnalysisClient = new Mock<IAiAgentClient>();
+            _mockToolClient = new Mock<IToolExecutionClient>();
+            _logger = new Mock<ILogger<InvestigationOrchestrator>>().Object;
+
+            var validatorLogger = new Mock<ILogger<PlanValidator>>().Object;
+            var validator = new PlanValidator(validatorLogger);
+
+            _orchestrator = new InvestigationOrchestrator(
+                _mockPlanClient.Object,
+                _mockAnalysisClient.Object,
+                _mockToolClient.Object,
+                validator,
+                _logger);
         }
 
         [Fact]
@@ -40,19 +49,32 @@ namespace Investigation.Tests
                 "user-789"
             );
 
-            var agentResponse = new AgentResponse
+            var plan = new PlanResponse
             {
-                Reasoning = "Test reasoning",
-                ReasoningSummary = "Test summary",
-                Actions = new List<AgentAction>
+                PlanId = "plan-1",
+                SummaryIntent = "Find evidence",
+                InvestigationPlan = new List<PlanStep>
                 {
-                    new AgentAction { ToolName = "search_documents", Input = new { query = "fraud" } }
+                    new PlanStep { Step = 1, ToolName = "search_documents", Parameters = new Dictionary<string, object> { { "query", "fraud" } } }
                 }
             };
 
-            _mockAiClient
-                .Setup(c => c.InvestigateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), default))
-                .ReturnsAsync(agentResponse);
+            var agentAnalysis = new AgentResponse
+            {
+                ReasoningSummary = "Test summary"
+            };
+
+            _mockPlanClient
+                .Setup(c => c.GetPlanAsync(It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<string>(), default))
+                .ReturnsAsync(plan);
+
+            _mockToolClient
+                .Setup(c => c.ExecuteToolAsync("search_documents", It.IsAny<System.Text.Json.Nodes.JsonObject?>(), "trace-123", default))
+                .ReturnsAsync(new System.Text.Json.Nodes.JsonObject { ["result"] = "ok" });
+
+            _mockAnalysisClient
+                .Setup(c => c.AnalyzeAsync(It.IsAny<string>(), It.IsAny<List<ToolResult>>(), It.IsAny<string>(), default))
+                .ReturnsAsync(agentAnalysis);
 
             // Act
             var result = await _orchestrator.InvestigateAsync(request);
@@ -77,7 +99,7 @@ namespace Investigation.Tests
         }
 
         [Fact]
-        public async Task InvestigateAsync_ShouldCallAiClient_WithCorrectParameters()
+        public async Task InvestigateAsync_ShouldCallPlanClient_WithCorrectParameters()
         {
             // Arrange
             var request = new InvestigationRequest(
@@ -88,16 +110,22 @@ namespace Investigation.Tests
                 "user-789"
             );
 
-            var agentResponse = new AgentResponse { ReasoningSummary = "Summary", Actions = null };
-            _mockAiClient
-                .Setup(c => c.InvestigateAsync("Query text", "case-456", "trace-123", default))
-                .ReturnsAsync(agentResponse);
+            var plan = new PlanResponse
+            {
+                PlanId = "plan-1",
+                SummaryIntent = "Intent",
+                InvestigationPlan = new List<PlanStep>()
+            };
+
+            _mockPlanClient
+                .Setup(c => c.GetPlanAsync("Query text", It.IsAny<List<string>>(), "trace-123", default))
+                .ReturnsAsync(plan);
 
             // Act
             await _orchestrator.InvestigateAsync(request);
 
             // Assert
-            _mockAiClient.Verify(c => c.InvestigateAsync("Query text", "case-456", "trace-123", default), Times.Once);
+            _mockPlanClient.Verify(c => c.GetPlanAsync("Query text", It.IsAny<List<string>>(), "trace-123", default), Times.Once);
         }
     }
 }

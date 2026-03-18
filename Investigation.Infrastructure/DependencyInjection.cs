@@ -27,12 +27,12 @@ namespace Investigation.Infrastructure
             // Use mock AI client for development
             services.AddScoped<IAiAgentClient, MockAiAgentClient>();
 
-            var aiBase = config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent";
+            var aiBase = config["AiAgent:BaseUrl"] ?? config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent";
             var ragBase = config["ExternalServices:Rag:BaseUrl"] ?? "http://rag-service";
             var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec";
 
-            // Typed HttpClient for AI Agent — base URL from config
-            services.AddHttpClient<Investigation.Application.Services.AiAgentClient>(client =>
+            // Typed HttpClient for AI Agent planning (/plan endpoint)
+            services.AddHttpClient<IAiPlanClient, Investigation.Application.Services.AiAgentClient>(client =>
             {
                 client.BaseAddress = new Uri(aiBase);
 

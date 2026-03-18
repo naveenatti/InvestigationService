@@ -4,9 +4,11 @@ using Investigation.Application.Exceptions;
 using Investigation.Application.Models;
 using Microsoft.Extensions.Logging;
 
+using Investigation.Application.Contracts;
+
 namespace Investigation.Application.Services
 {
-    public class AiAgentClient
+    public class AiAgentClient : IAiPlanClient
     {
         private readonly HttpClient _http;
         private readonly ILogger<AiAgentClient> _logger;
