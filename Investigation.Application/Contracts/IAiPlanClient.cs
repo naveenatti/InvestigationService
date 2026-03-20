@@ -7,6 +7,16 @@ namespace Investigation.Application.Contracts
 {
     public interface IAiPlanClient
     {
-        Task<PlanResponse> GetPlanAsync(string userQuery, List<string> toolRegistry, string traceId, CancellationToken ct = default);
+        /// <summary>
+        /// POST /plan on the AI Agent.
+        /// Sends structured tool definitions and available namespaces.
+        /// Returns a structured execution plan.
+        /// </summary>
+        Task<PlanResponse> GetPlanAsync(
+            string userQuery,
+            List<ToolDefinitionDto> toolRegistry,
+            List<string> namespaces,
+            string traceId,
+            CancellationToken ct = default);
     }
 }

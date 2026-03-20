@@ -7,48 +7,46 @@ using Investigation.Infrastructure.Policies;
 using Investigation.Infrastructure.Session;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Polly;
-using System.Net.Http;
+using Polly.Extensions.Http;
 
 namespace Investigation.Infrastructure
 {
     public static class DependencyInjection
     {
-        public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
+        public static IServiceCollection AddInfrastructure(
+            this IServiceCollection services, IConfiguration config)
         {
+            // Session
             services.AddSingleton<ISessionRepository, InMemorySessionRepository>();
 
-            // Register orchestrator
+            // Orchestrator
             services.AddScoped<IInvestigationOrchestrator, InvestigationOrchestrator>();
 
-            // Register new services for plan integration
+            // Plan validator
             services.AddScoped<PlanValidator>();
 
-            // Use mock AI client for development
-            services.AddScoped<IAiAgentClient, MockAiAgentClient>();
+            // Base URLs from config
+            var aiBase = config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent:8501";
+            var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec:8080";
 
-            var aiBase = config["AiAgent:BaseUrl"] ?? config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent";
-            var ragBase = config["ExternalServices:Rag:BaseUrl"] ?? "http://rag-service";
-            var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec";
-
-            // Typed HttpClient for AI Agent planning (/plan endpoint)
-            services.AddHttpClient<IAiPlanClient, Investigation.Application.Services.AiAgentClient>(client =>
+            // AI Agent client — handles both /plan and /analyze
+            services.AddHttpClient<AiAgentClient>(client =>
             {
-                client.BaseAddress = new Uri(aiBase);
-
-                // 60s timeout — LLM planning calls can be slow
+                client.BaseAddress = new Uri(aiBase.TrimEnd('/') + "/");
                 client.Timeout = TimeSpan.FromSeconds(60);
-            });
+            }).AddPolicyHandler(PolicyFactory.GetRetryPolicy());
 
-            // Legacy clients (for backward compatibility)
-            services.AddHttpClient<IAgentClient, Clients.AiAgentClient>(c => c.BaseAddress = new Uri(aiBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
+            services.AddScoped<IAiPlanClient>(sp =>
+                sp.GetRequiredService<AiAgentClient>());
+            services.AddScoped<IAiAgentClient>(sp =>
+                sp.GetRequiredService<AiAgentClient>());
 
-            services.AddHttpClient<IRagClient, RagClient>(c => c.BaseAddress = new Uri(ragBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
-
-            services.AddHttpClient<IToolExecutionClient, ToolExecutionClient>(c => c.BaseAddress = new Uri(toolBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
+            // Tool Execution client
+            services.AddHttpClient<IToolExecutionClient, ToolExecutionClient>(client =>
+            {
+                client.BaseAddress = new Uri(toolBase.TrimEnd('/') + "/");
+                client.Timeout = TimeSpan.FromSeconds(90);
+            }).AddPolicyHandler(PolicyFactory.GetRetryPolicy());
 
             return services;
         }

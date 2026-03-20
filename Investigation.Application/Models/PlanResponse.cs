@@ -1,14 +1,14 @@
+using System.Collections.Generic;
+
 namespace Investigation.Application.Models
 {
+    /// <summary>
+    /// Maps the /plan response from the AI Agent.
+    /// planId removed — traceId correlation is owned by the Orchestration layer.
+    /// </summary>
     public class PlanResponse
     {
-        // Maps "planId" from agent response
-        public string PlanId { get; set; } = string.Empty;
-
-        // Maps "summaryIntent" from agent response
         public string SummaryIntent { get; set; } = string.Empty;
-
-        // Maps "investigationPlan" array from agent response
         public List<PlanStep> InvestigationPlan { get; set; } = new();
     }
 
@@ -17,6 +17,6 @@ namespace Investigation.Application.Models
         public int Step { get; set; }
         public string ToolName { get; set; } = string.Empty;
         public Dictionary<string, object> Parameters { get; set; } = new();
-        public string? Reasoning { get; set; }   // optional — agent provides it, log it
+        public string? Reasoning { get; set; }
     }
 }

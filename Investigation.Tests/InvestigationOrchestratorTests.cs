@@ -24,16 +24,22 @@ namespace Investigation.Tests
             _mockPlanClient = new Mock<IAiPlanClient>();
             _mockAnalysisClient = new Mock<IAiAgentClient>();
             _mockToolClient = new Mock<IToolExecutionClient>();
+            var mockSessionRepo = new Mock<ISessionRepository>();
             _logger = new Mock<ILogger<InvestigationOrchestrator>>().Object;
 
             var validatorLogger = new Mock<ILogger<PlanValidator>>().Object;
             var validator = new PlanValidator(validatorLogger);
+
+            mockSessionRepo
+                .Setup(r => r.SaveAsync(It.IsAny<InvestigationSession>(), It.IsAny<System.Threading.CancellationToken>()))
+                .Returns(System.Threading.Tasks.Task.CompletedTask);
 
             _orchestrator = new InvestigationOrchestrator(
                 _mockPlanClient.Object,
                 _mockAnalysisClient.Object,
                 _mockToolClient.Object,
                 validator,
+                mockSessionRepo.Object,
                 _logger);
         }
 
@@ -51,11 +57,15 @@ namespace Investigation.Tests
 
             var plan = new PlanResponse
             {
-                PlanId = "plan-1",
                 SummaryIntent = "Find evidence",
                 InvestigationPlan = new List<PlanStep>
                 {
-                    new PlanStep { Step = 1, ToolName = "search_documents", Parameters = new Dictionary<string, object> { { "query", "fraud" } } }
+                    new PlanStep
+                    {
+                        Step = 1,
+                        ToolName = "list-pods",
+                        Parameters = new Dictionary<string, object> { { "namespace", "default" } }
+                    }
                 }
             };
 
@@ -64,16 +74,50 @@ namespace Investigation.Tests
                 ReasoningSummary = "Test summary"
             };
 
+            var toolRegistry = new List<ToolDefinitionDto>
+            {
+                new ToolDefinitionDto
+                {
+                    Name = "list-pods",
+                    Description = "list pods",
+                    IsIdempotent = true,
+                    TimeoutSeconds = 30,
+                    Parameters = new Dictionary<string, ToolParameterDto>()
+                }
+            };
+            var namespaces = new List<string> { "default" };
+
             _mockPlanClient
-                .Setup(c => c.GetPlanAsync(It.IsAny<string>(), It.IsAny<List<string>>(), It.IsAny<string>(), default))
+                .Setup(c => c.GetPlanAsync(
+                    request.Query,
+                    It.IsAny<List<ToolDefinitionDto>>(),
+                    It.IsAny<List<string>>(),
+                    request.TraceId!,
+                    It.IsAny<System.Threading.CancellationToken>()))
                 .ReturnsAsync(plan);
 
             _mockToolClient
-                .Setup(c => c.ExecuteToolAsync("search_documents", It.IsAny<System.Text.Json.Nodes.JsonObject?>(), "trace-123", default))
+                .Setup(c => c.GetToolsAsync(It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(toolRegistry);
+
+            _mockToolClient
+                .Setup(c => c.GetNamespacesAsync("trace-123", It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(namespaces);
+
+            _mockToolClient
+                .Setup(c => c.ExecuteToolAsync(
+                    "list-pods",
+                    It.IsAny<System.Text.Json.Nodes.JsonObject?>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()))
                 .ReturnsAsync(new System.Text.Json.Nodes.JsonObject { ["result"] = "ok" });
 
             _mockAnalysisClient
-                .Setup(c => c.AnalyzeAsync(It.IsAny<string>(), It.IsAny<List<ToolResult>>(), It.IsAny<string>(), default))
+                .Setup(c => c.AnalyzeAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<List<ToolResult>>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()))
                 .ReturnsAsync(agentAnalysis);
 
             // Act
@@ -85,7 +129,7 @@ namespace Investigation.Tests
             Assert.Equal(InvestigationResponseStatus.Success, result.Status);
             Assert.Equal("Test summary", result.Summary);
             Assert.Single(result.ToolCalls);
-            Assert.Equal("search_documents", result.ToolCalls[0].ToolName);
+            Assert.Equal("list-pods", result.ToolCalls[0].ToolName);
         }
 
         [Fact]
@@ -112,20 +156,76 @@ namespace Investigation.Tests
 
             var plan = new PlanResponse
             {
-                PlanId = "plan-1",
                 SummaryIntent = "Intent",
-                InvestigationPlan = new List<PlanStep>()
+                InvestigationPlan = new List<PlanStep>
+                {
+                    new PlanStep
+                    {
+                        Step = 1,
+                        ToolName = "list-pods",
+                        Parameters = new Dictionary<string, object> { { "namespace", "default" } }
+                    }
+                }
             };
 
+            var toolRegistry = new List<ToolDefinitionDto>
+            {
+                new ToolDefinitionDto
+                {
+                    Name = "list-pods",
+                    Description = "list pods",
+                    IsIdempotent = true,
+                    TimeoutSeconds = 30,
+                    Parameters = new Dictionary<string, ToolParameterDto>()
+                }
+            };
+            var namespaces = new List<string> { "default" };
+
             _mockPlanClient
-                .Setup(c => c.GetPlanAsync("Query text", It.IsAny<List<string>>(), "trace-123", default))
+                .Setup(c => c.GetPlanAsync(
+                    "Query text",
+                    It.IsAny<List<ToolDefinitionDto>>(),
+                    It.IsAny<List<string>>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()))
                 .ReturnsAsync(plan);
+
+            _mockToolClient
+                .Setup(c => c.GetToolsAsync(It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(toolRegistry);
+
+            _mockToolClient
+                .Setup(c => c.GetNamespacesAsync("trace-123", It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(namespaces);
+
+            _mockToolClient
+                .Setup(c => c.ExecuteToolAsync(
+                    "list-pods",
+                    It.IsAny<System.Text.Json.Nodes.JsonObject?>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(new System.Text.Json.Nodes.JsonObject { ["result"] = "ok" });
+
+            _mockAnalysisClient
+                .Setup(c => c.AnalyzeAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<List<ToolResult>>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()))
+                .ReturnsAsync(new AgentResponse { ReasoningSummary = "ok" });
 
             // Act
             await _orchestrator.InvestigateAsync(request);
 
             // Assert
-            _mockPlanClient.Verify(c => c.GetPlanAsync("Query text", It.IsAny<List<string>>(), "trace-123", default), Times.Once);
+            _mockPlanClient.Verify(
+                c => c.GetPlanAsync(
+                    "Query text",
+                    It.IsAny<List<ToolDefinitionDto>>(),
+                    It.IsAny<List<string>>(),
+                    "trace-123",
+                    It.IsAny<System.Threading.CancellationToken>()),
+                Times.Once);
         }
     }
 }

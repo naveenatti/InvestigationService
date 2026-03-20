@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -8,7 +7,6 @@ using Serilog.Context;
 using OpenTelemetry.Trace;
 using OpenTelemetry.Resources;
 using Investigation.Infrastructure;
-using Investigation.Application.Orchestration;
 using Microsoft.OpenApi.Models;
 using Investigation.API.Swagger.Filters;
 
@@ -53,27 +51,18 @@ builder.Services.AddOpenTelemetry()
 // Controllers
 builder.Services.AddControllers();
 
-// MediatR
-builder.Services.AddMediatR(typeof(Investigation.Application.Commands.RunInvestigationCommand).Assembly);
-
-// Application services
-builder.Services.AddScoped<Investigation.Application.Services.IInvestigationOrchestratorService,
-    Investigation.Application.Services.InvestigationOrchestratorService>();
-
 // Infrastructure
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Investigation API", Version = "v1" });
-    // include XML comments in generated Swagger (ensure XML file generated in csproj)
-    var xmlFile = System.IO.Path.ChangeExtension(System.Reflection.Assembly.GetExecutingAssembly().Location, ".xml");
+    var xmlFile = System.IO.Path.ChangeExtension(
+        System.Reflection.Assembly.GetExecutingAssembly().Location, ".xml");
     if (System.IO.File.Exists(xmlFile))
     {
         c.IncludeXmlComments(xmlFile);
     }
-    // c.OperationFilter<AddTraceIdHeaderFilter>();
-    // c.OperationFilter<AddResponseDescriptionFilter>();
 });
 
 var app = builder.Build();
