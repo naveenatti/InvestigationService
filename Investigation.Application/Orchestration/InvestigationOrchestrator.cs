@@ -32,12 +32,12 @@ namespace Investigation.Application.Orchestration
             ISessionRepository sessionRepository,
             ILogger<InvestigationOrchestrator> logger)
         {
-            _planClient     = planClient;
+            _planClient = planClient;
             _analysisClient = analysisClient;
-            _toolClient     = toolClient;
-            _validator      = validator;
+            _toolClient = toolClient;
+            _validator = validator;
             _sessionRepository = sessionRepository;
-            _logger         = logger;
+            _logger = logger;
         }
 
         public async Task<InvestigationResponse> InvestigateAsync(
@@ -61,11 +61,11 @@ namespace Investigation.Application.Orchestration
             // Both are needed before planning — run concurrently to save time.
             _logger.LogDebug("Pre-fetching tools and namespaces. traceId={TraceId}", traceId);
 
-            var toolsTask      = _toolClient.GetToolsAsync(ct);
+            var toolsTask = _toolClient.GetToolsAsync(ct);
             var namespacesTask = _toolClient.GetNamespacesAsync(traceId, ct);
             await Task.WhenAll(toolsTask, namespacesTask);
 
-            var tools      = toolsTask.Result;
+            var tools = toolsTask.Result;
             var namespaces = namespacesTask.Result;
 
             _logger.LogDebug(
@@ -74,11 +74,11 @@ namespace Investigation.Application.Orchestration
 
             // ── Step 2: Generate plan ─────────────────────────────────────────
             var plan = await _planClient.GetPlanAsync(
-                userQuery:    req.Query!,
+                userQuery: req.Query!,
                 toolRegistry: tools,
-                namespaces:   namespaces,
-                traceId:      traceId,
-                ct:           ct);
+                namespaces: namespaces,
+                traceId: traceId,
+                ct: ct);
 
             // ── Step 3: Validate plan ─────────────────────────────────────────
             _validator.Validate(plan);
@@ -111,9 +111,9 @@ namespace Investigation.Application.Orchestration
             }
 
             // ── Step 4: Execute each plan step ────────────────────────────────
-            var toolCalls   = new List<Investigation.Application.Contracts.ToolCallDto>();
+            var toolCalls = new List<Investigation.Application.Contracts.ToolCallDto>();
             var toolResults = new List<ToolResult>();
-            var status      = InvestigationResponseStatus.Success;
+            var status = InvestigationResponseStatus.Success;
 
             foreach (var step in plan.InvestigationPlan)
             {
@@ -121,24 +121,53 @@ namespace Investigation.Application.Orchestration
                     step.ToolName, "Pending", 0,
                     new { action = step.ToolName, input = step.Parameters }));
 
-                var sessionStep = new InvestigationStep(step.ToolName);
-                session.AddStep(sessionStep);
-
                 var stepSw = Stopwatch.StartNew();
                 try
                 {
-                    var arguments = JsonSerializer.SerializeToNode(step.Parameters) as JsonObject;
-                    var output    = await _toolClient.ExecuteToolAsync(
+                    // Filter parameters to only what this tool actually accepts.
+                    // Removes:
+                    //   1. Parameters not in the tool's definition
+                    //   2. Placeholder values like <podName-from-step-1>
+                    var toolDef = tools.FirstOrDefault(t => t.Name == step.ToolName);
+                    var validKeys = toolDef?.Parameters?.Keys.ToHashSet()
+                                    ?? new HashSet<string>();
+
+                    var filteredParams = step.Parameters
+                        .Where(p => validKeys.Count == 0 || validKeys.Contains(p.Key))
+                        .Where(p =>
+                        {
+                            var val = p.Value?.ToString() ?? string.Empty;
+                            var isPlaceholder = val.StartsWith("<") && val.EndsWith(">");
+                            if (isPlaceholder)
+                            {
+                                _logger.LogWarning(
+                                    "Stripping placeholder parameter. step={Step} tool={Tool} " +
+                                    "param={Param} value={Value} traceId={TraceId}",
+                                    step.Step, step.ToolName, p.Key, val, traceId);
+                            }
+                            return !isPlaceholder;
+                        })
+                        .ToDictionary(p => p.Key, p => p.Value);
+
+                    _logger.LogDebug(
+                        "Filtered parameters. step={Step} tool={Tool} " +
+                        "original={Original} filtered={Filtered} traceId={TraceId}",
+                        step.Step, step.ToolName,
+                        string.Join(",", step.Parameters.Keys),
+                        string.Join(",", filteredParams.Keys),
+                        traceId);
+
+                    var arguments = JsonSerializer.SerializeToNode(filteredParams) as JsonObject;
+                    var output = await _toolClient.ExecuteToolAsync(
                         step.ToolName, arguments, traceId, ct);
                     stepSw.Stop();
 
                     toolResults.Add(new ToolResult(step.ToolName, true, output));
-                    sessionStep.MarkSuccess(output?.ToJsonString());
                     toolCalls[^1] = toolCalls[^1] with
                     {
-                        Status     = "Success",
+                        Status = "Success",
                         DurationMs = stepSw.ElapsedMilliseconds,
-                        Metadata   = new { action = step.ToolName, input = step.Parameters, output }
+                        Metadata = new { action = step.ToolName, input = filteredParams, output }
                     };
                 }
                 catch (Exception ex)
@@ -150,12 +179,11 @@ namespace Investigation.Application.Orchestration
                         step.ToolName, traceId);
 
                     toolResults.Add(new ToolResult(step.ToolName, false, null));
-                    sessionStep.MarkFailed(ex.Message);
                     toolCalls[^1] = toolCalls[^1] with
                     {
-                        Status     = "Failed",
+                        Status = "Failed",
                         DurationMs = stepSw.ElapsedMilliseconds,
-                        Metadata   = new { action = step.ToolName, error = ex.Message }
+                        Metadata = new { action = step.ToolName, error = ex.Message }
                     };
                 }
             }
@@ -174,7 +202,7 @@ namespace Investigation.Application.Orchestration
             }
 
             var summary = analysis?.ReasoningSummary ?? plan.SummaryIntent;
-            var result  = analysis ?? new AgentResponse { ReasoningSummary = summary };
+            var result = analysis ?? new AgentResponse { ReasoningSummary = summary };
 
             // Keep session history aligned with response semantics:
             // - Success => Completed
