@@ -1,172 +1,230 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Investigation.Application.Contracts;
 using Investigation.Application.DTOs;
+using Investigation.Application.Models;
+using Investigation.Application.Services;
 using Investigation.Domain;
 using Microsoft.Extensions.Logging;
 
 namespace Investigation.Application.Orchestration
 {
-    /// <summary>
-    /// Orchestrates investigation queries following Clean Architecture principles.
-    /// Validates requests, calls AI agent, maps results to tool calls, and returns typed responses.
-    /// Emits OpenTelemetry traces and structured logs for observability.
-    /// </summary>
     public class InvestigationOrchestrator : IInvestigationOrchestrator
     {
-        private readonly IAiAgentClient _aiClient;
+        private readonly IAiPlanClient _planClient;
+        private readonly IAiAgentClient _analysisClient;
+        private readonly IToolExecutionClient _toolClient;
+        private readonly PlanValidator _validator;
         private readonly ISessionRepository _sessionRepository;
-        private readonly ActivitySource _activitySource;
         private readonly ILogger<InvestigationOrchestrator> _logger;
 
         public InvestigationOrchestrator(
-            IAiAgentClient aiClient,
+            IAiPlanClient planClient,
+            IAiAgentClient analysisClient,
+            IToolExecutionClient toolClient,
+            PlanValidator validator,
             ISessionRepository sessionRepository,
-            ActivitySource activitySource,
             ILogger<InvestigationOrchestrator> logger)
         {
-            _aiClient = aiClient;
+            _planClient = planClient;
+            _analysisClient = analysisClient;
+            _toolClient = toolClient;
+            _validator = validator;
             _sessionRepository = sessionRepository;
-            _activitySource = activitySource;
             _logger = logger;
         }
 
-        /// <summary>
-        /// Executes investigation orchestration flow with validation, AI agent invocation, and response mapping.
-        /// </summary>
-        public async Task<InvestigationResponse> InvestigateAsync(InvestigationRequest request, CancellationToken ct = default)
+        public async Task<InvestigationResponse> InvestigateAsync(
+            InvestigationRequest req, CancellationToken ct = default)
         {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            if (string.IsNullOrWhiteSpace(req.Query))
+                throw new ArgumentException("Query is required", nameof(req.Query));
+
             var sw = Stopwatch.StartNew();
 
-            // Step 1: Start Activity (OpenTelemetry)
-            using var activity = _activitySource.StartActivity("investigation.orchestrate", ActivityKind.Internal);
-            activity?.SetIdFormat(ActivityIdFormat.W3C);
-            activity?.AddTag("traceId", request.TraceId);
-            activity?.AddTag("caseId", request.CaseId);
+            var traceId = string.IsNullOrWhiteSpace(req.TraceId)
+                ? Guid.NewGuid().ToString()
+                : req.TraceId;
 
+            _logger.LogInformation(
+                "Investigation started. traceId={TraceId} caseId={CaseId} query={Query}",
+                traceId, req.CaseId, req.Query);
+
+            // ── Step 1: Pre-fetch tools and namespaces in parallel ─────────────
+            // Both are needed before planning — run concurrently to save time.
+            _logger.LogDebug("Pre-fetching tools and namespaces. traceId={TraceId}", traceId);
+
+            var toolsTask = _toolClient.GetToolsAsync(ct);
+            var namespacesTask = _toolClient.GetNamespacesAsync(traceId, ct);
+            await Task.WhenAll(toolsTask, namespacesTask);
+
+            var tools = toolsTask.Result;
+            var namespaces = namespacesTask.Result;
+
+            _logger.LogDebug(
+                "Pre-fetch complete. tools={ToolCount} namespaces={Namespaces} traceId={TraceId}",
+                tools.Count, string.Join(",", namespaces), traceId);
+
+            // ── Step 2: Generate plan ─────────────────────────────────────────
+            var plan = await _planClient.GetPlanAsync(
+                userQuery: req.Query!,
+                toolRegistry: tools,
+                namespaces: namespaces,
+                traceId: traceId,
+                ct: ct);
+
+            // ── Step 3: Validate plan ─────────────────────────────────────────
+            _validator.Validate(plan);
+
+            // ── Session persistence (restores prior session tracking) ─────────
+            // Use TraceId as session Id when it's a valid Guid, otherwise fall back
+            // to a new Guid. This keeps persistence aligned with ISessionRepository.
+            var sessionId = Guid.TryParse(traceId, out var parsedTraceId)
+                ? parsedTraceId
+                : Guid.NewGuid();
+
+            var session = new InvestigationSession(
+                sessionId,
+                req.UserId,
+                traceId,
+                req.CaseId,
+                req.Query);
+
+            _logger.LogInformation(
+                "Plan validated. intent={Intent} steps={Steps} traceId={TraceId}",
+                plan.SummaryIntent, plan.InvestigationPlan.Count, traceId);
+
+            foreach (var step in plan.InvestigationPlan)
+            {
+                _logger.LogDebug(
+                    "Step={Step} tool={Tool} params={Params} reasoning={Reasoning} traceId={TraceId}",
+                    step.Step, step.ToolName,
+                    JsonSerializer.Serialize(step.Parameters),
+                    step.Reasoning, traceId);
+            }
+
+            // ── Step 4: Execute each plan step ────────────────────────────────
+            var toolCalls = new List<Investigation.Application.Contracts.ToolCallDto>();
+            var toolResults = new List<ToolResult>();
+            var status = InvestigationResponseStatus.Success;
+
+            foreach (var step in plan.InvestigationPlan)
+            {
+                toolCalls.Add(new Investigation.Application.Contracts.ToolCallDto(
+                    step.ToolName, "Pending", 0,
+                    new { action = step.ToolName, input = step.Parameters }));
+
+                var stepSw = Stopwatch.StartNew();
+                try
+                {
+                    // Filter parameters to only what this tool actually accepts.
+                    // Removes:
+                    //   1. Parameters not in the tool's definition
+                    //   2. Placeholder values like <podName-from-step-1>
+                    var toolDef = tools.FirstOrDefault(t => t.Name == step.ToolName);
+                    var validKeys = toolDef?.Parameters?.Keys.ToHashSet()
+                                    ?? new HashSet<string>();
+
+                    var filteredParams = step.Parameters
+                        .Where(p => validKeys.Count == 0 || validKeys.Contains(p.Key))
+                        .Where(p =>
+                        {
+                            var val = p.Value?.ToString() ?? string.Empty;
+                            var isPlaceholder = val.StartsWith("<") && val.EndsWith(">");
+                            if (isPlaceholder)
+                            {
+                                _logger.LogWarning(
+                                    "Stripping placeholder parameter. step={Step} tool={Tool} " +
+                                    "param={Param} value={Value} traceId={TraceId}",
+                                    step.Step, step.ToolName, p.Key, val, traceId);
+                            }
+                            return !isPlaceholder;
+                        })
+                        .ToDictionary(p => p.Key, p => p.Value);
+
+                    _logger.LogDebug(
+                        "Filtered parameters. step={Step} tool={Tool} " +
+                        "original={Original} filtered={Filtered} traceId={TraceId}",
+                        step.Step, step.ToolName,
+                        string.Join(",", step.Parameters.Keys),
+                        string.Join(",", filteredParams.Keys),
+                        traceId);
+
+                    var arguments = JsonSerializer.SerializeToNode(filteredParams) as JsonObject;
+                    var output = await _toolClient.ExecuteToolAsync(
+                        step.ToolName, arguments, traceId, ct);
+                    stepSw.Stop();
+
+                    toolResults.Add(new ToolResult(step.ToolName, true, output));
+                    toolCalls[^1] = toolCalls[^1] with
+                    {
+                        Status = "Success",
+                        DurationMs = stepSw.ElapsedMilliseconds,
+                        Metadata = new { action = step.ToolName, input = filteredParams, output }
+                    };
+                }
+                catch (Exception ex)
+                {
+                    stepSw.Stop();
+                    status = InvestigationResponseStatus.Partial;
+                    _logger.LogWarning(ex,
+                        "Tool execution failed. tool={Tool} traceId={TraceId}",
+                        step.ToolName, traceId);
+
+                    toolResults.Add(new ToolResult(step.ToolName, false, null));
+                    toolCalls[^1] = toolCalls[^1] with
+                    {
+                        Status = "Failed",
+                        DurationMs = stepSw.ElapsedMilliseconds,
+                        Metadata = new { action = step.ToolName, error = ex.Message }
+                    };
+                }
+            }
+
+            // ── Step 5: Analyze results ───────────────────────────────────────
+            AgentResponse? analysis = null;
             try
             {
-                _logger.LogInformation("Investigation started for CaseId={CaseId}, Query={Query}", request.CaseId, request.Query);
-
-                // Step 2: Validate request
-                ValidateRequest(request);
-
-                var sessionGuid = Guid.NewGuid();
-                var session = new InvestigationSession(
-                    sessionGuid,
-                    request.UserId,
-                    request.TraceId,
-                    request.CaseId,
-                    request.Query);
-
-                // Step 3: Call IAiAgentClient
-                _logger.LogInformation("Calling AI Agent for TraceId={TraceId}", request.TraceId);
-
-                AgentResponse agentResp;
-                using (var aiActivity = _activitySource.StartActivity("ai.agent.called", ActivityKind.Client))
-                {
-                    aiActivity?.SetIdFormat(ActivityIdFormat.W3C);
-                    aiActivity?.AddTag("traceId", request.TraceId);
-                    aiActivity?.AddTag("caseId", request.CaseId);
-
-                    agentResp = await _aiClient.InvestigateAsync(
-                        request.Query,
-                        request.CaseId,
-                        request.TraceId ?? string.Empty,
-                        ct);
-                }
-
-                _logger.LogInformation("AI Agent returned {ActionCount} actions", agentResp?.Actions?.Count ?? 0);
-
-                // Step 4 & 5: Map AI result → InvestigationResponse + Add ToolCalls
-                var toolCalls = MapActionsToToolCalls(agentResp?.Actions);
-
-                sw.Stop();
-
-                // Step 6 & 7: Capture duration and return response
-                var response = new InvestigationResponse(
-                    request.TraceId ?? string.Empty,
-                    request.CaseId,
-                    InvestigationResponseStatus.Success,
-                    agentResp?.ReasoningSummary ?? agentResp?.Reasoning ?? "Analysis completed",
-                    agentResp != null ? new { insight = "Investigation performed" } : null,
-                    toolCalls,
-                    sw.ElapsedMilliseconds,
-                    DateTime.UtcNow
-                );
-
-                // Persist session
-                session.MarkCompleted();
-                await _sessionRepository.SaveAsync(session, ct);
-
-                _logger.LogInformation("Investigation completed for CaseId={CaseId} in {DurationMs}ms", request.CaseId, sw.ElapsedMilliseconds);
-
-                activity?.AddTag("http.status_code", "200");
-                activity?.AddTag("investigation.duration_ms", sw.ElapsedMilliseconds);
-
-                return response;
-            }
-            catch (ArgumentException ex)
-            {
-                sw.Stop();
-                _logger.LogWarning("Investigation validation failed: {Message}", ex.Message);
-                activity?.AddTag("http.status_code", "400");
-                activity?.AddTag("error", true);
-                throw;
+                analysis = await _analysisClient.AnalyzeAsync(
+                    req.Query, toolResults, traceId, ct);
             }
             catch (Exception ex)
             {
-                sw.Stop();
-                _logger.LogError(ex, "Investigation failed for CaseId={CaseId}", request.CaseId);
-                activity?.AddTag("http.status_code", "500");
-                activity?.AddTag("error", true);
-                activity?.AddTag("error.message", ex.Message);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Validates investigation request for required fields.
-        /// </summary>
-        private void ValidateRequest(InvestigationRequest request)
-        {
-            if (request == null)
-                throw new ArgumentNullException(nameof(request), "Request cannot be null");
-
-            if (string.IsNullOrWhiteSpace(request.Query))
-                throw new ArgumentException("Query is required", nameof(request.Query));
-
-            if (string.IsNullOrWhiteSpace(request.CaseId))
-                throw new ArgumentException("CaseId is required", nameof(request.CaseId));
-
-            if (string.IsNullOrWhiteSpace(request.UserId))
-                throw new ArgumentException("UserId is required", nameof(request.UserId));
-        }
-
-        /// <summary>
-        /// Maps agent actions to tool call DTOs for response contract.
-        /// </summary>
-        private List<Contracts.ToolCallDto> MapActionsToToolCalls(List<AgentAction>? actions)
-        {
-            var toolCalls = new List<Contracts.ToolCallDto>();
-
-            if (actions == null || actions.Count == 0)
-                return toolCalls;
-
-            foreach (var action in actions)
-            {
-                toolCalls.Add(new Contracts.ToolCallDto(
-                    action.ToolName,
-                    "Pending",
-                    0,
-                    new { action = action.ToolName, input = action.Input }
-                ));
+                status = InvestigationResponseStatus.Partial;
+                _logger.LogWarning(ex, "Analysis failed. traceId={TraceId}", traceId);
             }
 
-            return toolCalls;
+            var summary = analysis?.ReasoningSummary ?? plan.SummaryIntent;
+            var result = analysis ?? new AgentResponse { ReasoningSummary = summary };
+
+            // Keep session history aligned with response semantics:
+            // - Success => Completed
+            // - Partial => Completed (distinct from complete failure)
+            // - Failed => Failed
+            if (status == InvestigationResponseStatus.Failed)
+                session.MarkFailed();
+            else
+                session.MarkCompleted();
+
+            await _sessionRepository.SaveAsync(session, ct);
+
+            // ── Step 6: Return response ───────────────────────────────────────
+            return new InvestigationResponse(
+                traceId,
+                req.CaseId,
+                status,
+                summary,
+                result,
+                toolCalls,
+                sw.ElapsedMilliseconds,
+                DateTime.UtcNow);
         }
     }
 }

@@ -37,5 +37,20 @@ namespace Investigation.Infrastructure.Clients
                 }
             };
         }
+
+        public async Task<AgentResponse> AnalyzeAsync(string query, List<ToolResult> toolResults, string traceId, CancellationToken ct = default)
+        {
+            _logger.LogInformation("Mock AI Analyze called for query: {Query}, traceId: {TraceId}", query, traceId);
+
+            // Simulate some async work
+            await Task.Delay(50, ct);
+
+            return new AgentResponse
+            {
+                Reasoning = $"Analyzed query '{query}' with {toolResults.Count} tool results.",
+                ReasoningSummary = $"Mock reasoning for: {query}",
+                Actions = null
+            };
+        }
     }
 }

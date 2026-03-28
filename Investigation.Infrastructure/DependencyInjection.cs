@@ -7,36 +7,46 @@ using Investigation.Infrastructure.Policies;
 using Investigation.Infrastructure.Session;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Polly;
-using System.Net.Http;
+using Polly.Extensions.Http;
 
 namespace Investigation.Infrastructure
 {
     public static class DependencyInjection
     {
-        public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
+        public static IServiceCollection AddInfrastructure(
+            this IServiceCollection services, IConfiguration config)
         {
+            // Session
             services.AddSingleton<ISessionRepository, InMemorySessionRepository>();
 
-            // Register orchestrator
+            // Orchestrator
             services.AddScoped<IInvestigationOrchestrator, InvestigationOrchestrator>();
 
-            // Use mock AI client for development
-            services.AddScoped<IAiAgentClient, MockAiAgentClient>();
+            // Plan validator
+            services.AddScoped<PlanValidator>();
 
-            var aiBase = config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent";
-            var ragBase = config["ExternalServices:Rag:BaseUrl"] ?? "http://rag-service";
-            var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec";
+            // Base URLs from config
+            var aiBase = config["ExternalServices:AiAgent:BaseUrl"] ?? "http://ai-agent:8501";
+            var toolBase = config["ExternalServices:ToolExecution:BaseUrl"] ?? "http://tool-exec:8080";
 
-            // Legacy clients (for backward compatibility)
-            services.AddHttpClient<IAgentClient, AiAgentClient>(c => c.BaseAddress = new Uri(aiBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
+            // AI Agent client — handles both /plan and /analyze
+            services.AddHttpClient<AiAgentClient>(client =>
+            {
+                client.BaseAddress = new Uri(aiBase.TrimEnd('/') + "/");
+                client.Timeout = TimeSpan.FromSeconds(60);
+            }).AddPolicyHandler(PolicyFactory.GetRetryPolicy());
 
-            services.AddHttpClient<IRagClient, RagClient>(c => c.BaseAddress = new Uri(ragBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
+            services.AddScoped<IAiPlanClient>(sp =>
+                sp.GetRequiredService<AiAgentClient>());
+            services.AddScoped<IAiAgentClient>(sp =>
+                sp.GetRequiredService<AiAgentClient>());
 
-            services.AddHttpClient<IToolExecutionClient, ToolExecutionClient>(c => c.BaseAddress = new Uri(toolBase))
-                .AddPolicyHandler(PolicyFactory.GetRetryPolicy());
+            // Tool Execution client
+            services.AddHttpClient<IToolExecutionClient, ToolExecutionClient>(client =>
+            {
+                client.BaseAddress = new Uri(toolBase.TrimEnd('/') + "/");
+                client.Timeout = TimeSpan.FromSeconds(90);
+            }).AddPolicyHandler(PolicyFactory.GetRetryPolicy());
 
             return services;
         }
